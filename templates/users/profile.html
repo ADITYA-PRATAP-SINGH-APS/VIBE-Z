@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="profile-grid">
+  <div class="card profile-card">
+    <div class="avatar-large" style="width:120px;height:120px;max-width:120px;max-height:120px;overflow:hidden;border-radius:50%;margin:0 auto 12px;">
+      {% if profile_user.profile.avatar %}
+      <img src="{{ profile_user.profile.avatar.url }}" alt="avatar" style="width:100%;height:100%;object-fit:cover;display:block;" />
+      {% else %}
+      <div class="avatar-circle" style="width:100%;height:100%;font-size:32px;">{{ profile_user.unique_name|slice:":2"|upper }}</div>
+      {% endif %}
+    </div>
+    <h2>{{ profile_user.profile.display_name|default:profile_user.full_name }}</h2>
+    <p class="muted">@{{ profile_user.unique_name }}</p>
+    <p>{{ profile_user.profile.bio|default:"No bio yet." }}</p>
+    <div class="profile-stats">
+      <div><strong>Friends</strong><span>{{ profile_user.friendships_one.count|add:profile_user.friendships_two.count }}</span></div>
+      <div><strong>Groups</strong><span>{{ profile_user.group_memberships.count }}</span></div>
+      <div><strong>Posts</strong><span>{{ profile_user.posts.count }}</span></div>
+      {% if mutual_friends %}
+      <div><strong>Mutual</strong><span>{{ mutual_friends }}</span></div>
+      {% endif %}
+    </div>
+    {% if user.is_authenticated and profile_user != user %}
+    <div class="button-row">
+      {% if is_blocked_by_other %}
+        <span class="muted">You are blocked.</span>
+      {% elif is_friend %}
+        <a class="button primary" href="{% url 'chat:room' dm_room %}">Message</a>
+        <form method="post" action="{% url 'friends:remove_friend' profile_user.unique_name %}">
+          {% csrf_token %}
+          <button class="button ghost" type="submit">Remove</button>
+        </form>
+      {% elif incoming_request %}
+        <form method="post" action="{% url 'friends:accept_request' incoming_request.id %}">
+          {% csrf_token %}
+          <button class="button primary" type="submit">Accept</button>
+        </form>
+        <form method="post" action="{% url 'friends:reject_request' incoming_request.id %}">
+          {% csrf_token %}
+          <button class="button ghost" type="submit">Decline</button>
+        </form>
+      {% elif outgoing_request %}
+        <button class="button ghost" type="button" disabled>Request sent</button>
+      {% else %}
+        <form method="post" action="{% url 'friends:send_request' profile_user.unique_name %}">
+          {% csrf_token %}
+          <button class="button ghost" type="submit">Add Friend</button>
+        </form>
+      {% endif %}
+
+      {% if is_blocked %}
+      <a class="button ghost" href="{% url 'users:unblock' profile_user.unique_name %}">Unblock</a>
+      {% else %}
+      <a class="button danger" href="{% url 'users:block' profile_user.unique_name %}">Block</a>
+      {% endif %}
+    </div>
+    <div class="report-widget" data-report-widget>
+      <button class="button ghost report-trigger" type="button" data-report-open aria-expanded="false">
+        Report User
+      </button>
+      <div class="report-panel" data-report-panel aria-hidden="true">
+        <form method="post" action="{% url 'core:report' %}" data-report-form>
+          {% csrf_token %}
+          <input type="hidden" name="target_user" value="{{ profile_user.id }}" />
+          <input type="hidden" name="next" value="{{ request.path }}" />
+          <textarea name="reason" placeholder="Tell us what happened…" required rows="3"></textarea>
+          <div class="button-row">
+            <button class="button danger" type="submit" data-report-submit>Send report</button>
+            <button class="button ghost" type="button" data-report-cancel>Cancel</button>
+          </div>
+        </form>
+      </div>
+    </div>
+    {% endif %}
+  </div>
+  <div class="card">
+    <h3>About</h3>
+    {% if profile_user == user %}
+    <p><strong>Email:</strong> {{ profile_user.email }}</p>
+    {% endif %}
+    <p><strong>Age:</strong> {{ profile_user.profile.age }}</p>
+    <p><strong>Gender:</strong> {{ profile_user.profile.gender }}</p>
+    <p><strong>Joined:</strong> {{ profile_user.date_joined|date:"M d, Y" }}</p>
+    <p><strong>Last seen:</strong> {{ profile_user.last_seen|default:"Online now" }}</p>
+  </div>
+</section>
+{% endblock %}

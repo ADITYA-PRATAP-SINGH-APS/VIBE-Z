@@ -1,0 +1,496 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="call-screen">
+  <div class="card">
+    <h2>Call Center</h2>
+    <p class="muted">Pick someone to call, then choose audio or video.</p>
+    <div class="call-controls">
+      <label>Call target</label>
+      <input type="text" id="callSearch" placeholder="Search name..." />
+      <select id="callTarget">
+        <option value="">Select a friend or group</option>
+        {% if friend_rooms %}
+        <optgroup label="Friends">
+          {% for item in friend_rooms %}
+          <option value="user:{{ item.friend.id }}" {% if selected_target_user_id == item.friend.id|stringformat:"s" %}selected{% endif %}>
+            @{{ item.friend.unique_name }}
+          </option>
+          {% endfor %}
+        </optgroup>
+        {% endif %}
+        {% if group_rooms %}
+        <optgroup label="Groups">
+          {% for item in group_rooms %}
+          <option value="group:{{ item.group.id }}" {% if selected_target_group_id == item.group.id|stringformat:"s" %}selected{% endif %}>
+            {{ item.group.name }}
+          </option>
+          {% endfor %}
+        </optgroup>
+        {% endif %}
+      </select>
+    </div>
+    {% if incoming_calls and not selected_room %}
+    <div class="card compact">
+      <h3>Incoming Calls</h3>
+      {% for call in incoming_calls %}
+      <div class="list-item">
+        <span>@{{ call.caller.unique_name }} ({{ call.call_type }})</span>
+        <div class="button-row">
+          <form method="post" action="{% url 'calls:accept' call.id %}">
+            {% csrf_token %}
+            <button class="button primary" type="submit">Accept</button>
+          </form>
+          <form method="post" action="{% url 'calls:decline' call.id %}">
+            {% csrf_token %}
+            <button class="button danger" type="submit">Decline</button>
+          </form>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+
+    <div class="video-grid">
+      <div class="video-tile">
+        <video id="localVideo" autoplay muted playsinline></video>
+        <div class="video-caption" id="localCaption">Me</div>
+      </div>
+      <div class="video-tile">
+        <video id="remoteVideo" autoplay playsinline></video>
+        <div class="video-caption" id="remoteCaption">Buddy</div>
+      </div>
+    </div>
+
+    <div class="call-status" id="callStatus">Status: idle</div>
+    <div class="button-row" id="playbackRow" style="display:none; margin-bottom: 10px;">
+      <button class="button primary" id="startPlayback" type="button">Tap to start sound</button>
+    </div>
+
+    <div class="button-row">
+      <button class="button ghost" id="audioCall" type="button">Audio</button>
+      <button class="button primary" id="videoCall" type="button">Video</button>
+      <button class="button ghost" id="muteCall" type="button">Mute</button>
+      <button class="button danger" id="endCall" type="button">End</button>
+    </div>
+
+    {% if call_history %}
+    <div class="card compact" style="margin-top: 14px;">
+      <h3>Recent Calls</h3>
+      {% for c in call_history %}
+      <div class="list-item">
+        <span>
+          {% if c.caller_id == user.id %}
+            You → {% if c.callee %}@{{ c.callee.unique_name }}{% else %}Group{% endif %}
+          {% else %}
+            {% if c.caller %}@{{ c.caller.unique_name }}{% else %}Unknown{% endif %} → You
+          {% endif %}
+          <span class="muted">({{ c.call_type }} · {{ c.status }})</span>
+        </span>
+        {% if c.status != 'ended' and c.room_name %}
+        <a class="button ghost" href="/calls/?room={{ c.room_name }}&session={{ c.id }}&type={{ c.call_type }}&role=callee">Open</a>
+        {% endif %}
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+  </div>
+</section>
+{% endblock %}
+{% block page_js %}
+<script>
+  const wsScheme = window.location.protocol === "https:" ? "wss" : "ws";
+
+  const localVideo = document.getElementById("localVideo");
+  const remoteVideo = document.getElementById("remoteVideo");
+  const playbackRow = document.getElementById("playbackRow");
+  const startPlayback = document.getElementById("startPlayback");
+  const localCaption = document.getElementById("localCaption");
+  const remoteCaption = document.getElementById("remoteCaption");
+
+  if (remoteVideo) {
+    remoteVideo.muted = false;
+    remoteVideo.volume = 1;
+  }
+
+  const muteCall = document.getElementById("muteCall");
+  const endCall = document.getElementById("endCall");
+  const audioCall = document.getElementById("audioCall");
+  const videoCall = document.getElementById("videoCall");
+
+  const callStatus = document.getElementById("callStatus");
+  const callTarget = document.getElementById("callTarget");
+  const callSearch = document.getElementById("callSearch");
+
+  const selectedRoom = "{{ selected_room|escapejs }}";
+  const selectedSession = "{{ selected_session|escapejs }}";
+  const selectedType = "{{ selected_type|escapejs }}";
+  const selectedRole = "{{ selected_role|escapejs }}";
+  const autoJoin = "{{ auto_join|escapejs }}";
+
+  const selectedTarget = "{{ selected_target|escapejs }}";
+  const autoDial = "{{ dial|escapejs }}";
+  const dialType = "{{ dial_type|escapejs }}";
+
+  // Label remote pane based on target type
+  const isGroupTarget = selectedTarget && selectedTarget.startsWith("group:");
+  if (remoteCaption) remoteCaption.textContent = isGroupTarget ? "Gang" : "Buddy";
+  if (localCaption) localCaption.textContent = "Me";
+
+  const rtcConfig = {
+    iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+  };
+
+  const myUserId = window.VIBEZ_USER_ID ? String(window.VIBEZ_USER_ID) : "";
+
+  let socket;
+  let pc;
+  let localStream;
+
+  let currentRoom = "";
+  let currentSessionId = "";
+  let currentRole = ""; // caller | callee
+  let currentCallType = "audio";
+  let offerSent = false;
+
+  function setStatus(text) {
+    callStatus.textContent = `Status: ${text}`;
+  }
+
+  function connectSocket(roomName) {
+    currentRoom = roomName;
+    if (socket) socket.close();
+
+    socket = new WebSocket(`${wsScheme}://${window.location.host}/ws/calls/${roomName}/`);
+
+    socket.onopen = () => {
+      setStatus("connected");
+      if (currentRole === "callee" && currentSessionId) {
+        send({ event: "callee_ready", session_id: currentSessionId, room: currentRoom });
+      }
+    };
+    socket.onerror = () => setStatus("connection error");
+    socket.onclose = () => setStatus("disconnected");
+
+    socket.onmessage = async (event) => {
+      let data;
+      try {
+        data = JSON.parse(event.data);
+      } catch {
+        return;
+      }
+
+      // Ignore our own echoed signaling messages
+      if (data && data.from && myUserId && String(data.from) === String(myUserId)) {
+        return;
+      }
+
+      if (data.event === "call_accepted" && currentRole === "caller") {
+        setStatus("accepted — waiting for callee");
+        return;
+      }
+
+      if (data.event === "callee_ready" && currentRole === "caller") {
+        setStatus("callee joined — starting WebRTC");
+        await startWebRTCAsCaller();
+        return;
+      }
+
+      if (data.event === "call_declined" && currentRole === "caller") {
+        setStatus("declined");
+        cleanup();
+        return;
+      }
+
+      if (data.event === "hangup") {
+        setStatus("ended");
+        cleanup();
+        return;
+      }
+
+      // WebRTC signaling
+      if (data.event === "webrtc_offer") {
+        await handleOffer(data.sdp);
+        return;
+      }
+      if (data.event === "webrtc_answer") {
+        await handleAnswer(data.sdp);
+        return;
+      }
+      if (data.event === "webrtc_ice" && data.candidate) {
+        await handleIce(data.candidate);
+      }
+    };
+  }
+
+  function send(payload) {
+    if (!socket || socket.readyState !== 1) return;
+    const msg = { from: myUserId, ...payload };
+    socket.send(JSON.stringify(msg));
+  }
+
+  async function ensureLocalStream(wantsVideo) {
+    if (localStream) return localStream;
+
+    localStream = await navigator.mediaDevices.getUserMedia({
+      audio: true,
+      video: !!wantsVideo,
+    });
+
+    localVideo.srcObject = localStream;
+    try { await localVideo.play(); } catch {}
+
+    // If PC already exists, attach tracks now
+    if (pc) {
+      const existingKinds = new Set(pc.getSenders().map((s) => (s.track ? s.track.kind : "")).filter(Boolean));
+      localStream.getTracks().forEach((track) => {
+        if (!existingKinds.has(track.kind)) {
+          pc.addTrack(track, localStream);
+        }
+      });
+    }
+
+    return localStream;
+  }
+
+  function ensurePeerConnection() {
+    if (pc) return pc;
+    pc = new RTCPeerConnection(rtcConfig);
+
+    // Attach local tracks if we already have them
+    if (localStream) {
+      localStream.getTracks().forEach((track) => pc.addTrack(track, localStream));
+    }
+
+    pc.onicecandidate = (event) => {
+      if (event.candidate) {
+        const c = event.candidate;
+        const payload = typeof c.toJSON === "function" ? c.toJSON() : { candidate: c.candidate, sdpMid: c.sdpMid, sdpMLineIndex: c.sdpMLineIndex };
+        send({ event: "webrtc_ice", candidate: payload });
+      }
+    };
+
+    pc.ontrack = (event) => {
+      const stream = event.streams && event.streams[0] ? event.streams[0] : new MediaStream([event.track]);
+      remoteVideo.srcObject = stream;
+
+      const p = remoteVideo.play();
+      if (p && typeof p.catch === "function") {
+        p.catch(() => {
+          if (playbackRow) playbackRow.style.display = "flex";
+          setStatus("tap to start sound");
+        });
+      }
+    };
+
+    pc.onconnectionstatechange = () => {
+      if (!pc) return;
+      const st = pc.connectionState;
+      if (st === "connected") setStatus("in call");
+      if (st === "failed" || st === "disconnected") setStatus(`connection ${st}`);
+    };
+
+    return pc;
+  }
+
+  async function startWebRTCAsCaller() {
+    if (offerSent) return;
+    offerSent = true;
+
+    try {
+      await ensureLocalStream(currentCallType === "video");
+    } catch {
+      setStatus("mic/camera permission denied");
+      offerSent = false;
+      return;
+    }
+
+    ensurePeerConnection();
+
+    const offer = await pc.createOffer();
+    await pc.setLocalDescription(offer);
+
+    send({ event: "webrtc_offer", sdp: { type: pc.localDescription.type, sdp: pc.localDescription.sdp } });
+    setStatus("calling…");
+  }
+
+  async function handleOffer(sdp) {
+    try {
+      await ensureLocalStream(currentCallType === "video");
+    } catch {
+      setStatus("mic/camera permission denied");
+      return;
+    }
+
+    ensurePeerConnection();
+
+    await pc.setRemoteDescription(new RTCSessionDescription(sdp));
+    const answer = await pc.createAnswer();
+    await pc.setLocalDescription(answer);
+
+    send({ event: "webrtc_answer", sdp: { type: pc.localDescription.type, sdp: pc.localDescription.sdp } });
+    setStatus("negotiating…");
+  }
+
+  async function handleAnswer(sdp) {
+    if (!pc) return;
+    await pc.setRemoteDescription(new RTCSessionDescription(sdp));
+    setStatus("negotiating…");
+  }
+
+  async function handleIce(candidate) {
+    if (!pc) return;
+    try {
+      await pc.addIceCandidate(new RTCIceCandidate(candidate));
+    } catch {
+      // ignore
+    }
+  }
+
+  function cleanup() {
+    offerSent = false;
+
+    if (pc) {
+      try { pc.close(); } catch {}
+      pc = null;
+    }
+
+    if (localStream) {
+      localStream.getTracks().forEach((t) => t.stop());
+      localStream = null;
+      localVideo.srcObject = null;
+    }
+
+    remoteVideo.srcObject = null;
+  }
+
+  async function startOutgoing(callType) {
+    const targetVal = (callTarget && callTarget.value) || selectedTarget || "";
+    if (!targetVal) {
+      setStatus("select a target first");
+      return;
+    }
+
+    setStatus("dialing…");
+    currentRole = "caller";
+    currentCallType = callType;
+
+    const formData = new FormData();
+    formData.append("target", targetVal);
+    formData.append("call_type", callType);
+
+    const response = await fetch("{% url 'calls:start' %}", {
+      method: "POST",
+      headers: { "X-Requested-With": "XMLHttpRequest", "X-CSRFToken": getCookie("csrftoken") },
+      body: formData,
+    });
+
+    if (!response.ok) {
+      setStatus(`could not start call (${response.status})`);
+      return;
+    }
+
+    const data = await response.json();
+    if (!data.ok) {
+      setStatus(data.error || "could not start call");
+      return;
+    }
+
+    currentSessionId = String(data.session_id || "");
+    connectSocket(data.room);
+    setStatus("ringing… waiting for accept");
+  }
+
+  audioCall.addEventListener("click", async () => {
+    await startOutgoing("audio");
+  });
+
+  videoCall.addEventListener("click", async () => {
+    await startOutgoing("video");
+  });
+
+  if (startPlayback) {
+    startPlayback.addEventListener("click", async () => {
+      try {
+        if (remoteVideo && remoteVideo.srcObject) {
+          await remoteVideo.play();
+          if (playbackRow) playbackRow.style.display = "none";
+          setStatus("in call");
+        }
+      } catch {
+        // ignore
+      }
+    });
+  }
+
+  muteCall.addEventListener("click", () => {
+    if (!localStream) return;
+    localStream.getAudioTracks().forEach((track) => (track.enabled = !track.enabled));
+  });
+
+  endCall.addEventListener("click", async () => {
+    try {
+      if (currentRoom) send({ event: "hangup", session_id: currentSessionId, room: currentRoom });
+      if (currentSessionId) {
+        await fetch(`/calls/end/${currentSessionId}/`, {
+          method: "POST",
+          headers: { "X-Requested-With": "XMLHttpRequest", "X-CSRFToken": getCookie("csrftoken") },
+        });
+      }
+    } finally {
+      setStatus("ended");
+      cleanup();
+    }
+  });
+
+  if (callSearch) {
+    callSearch.addEventListener("input", () => {
+      const value = callSearch.value.toLowerCase();
+      Array.from(callTarget.options).forEach((option) => {
+        if (!option.value) return;
+        option.hidden = !option.text.toLowerCase().includes(value);
+      });
+    });
+  }
+
+  function getCookie(name) {
+    let cookieValue = null;
+    if (document.cookie && document.cookie !== "") {
+      const cookies = document.cookie.split(";");
+      for (let i = 0; i < cookies.length; i += 1) {
+        const cookie = cookies[i].trim();
+        if (cookie.substring(0, name.length + 1) === `${name}=`) {
+          cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+          break;
+        }
+      }
+    }
+    return cookieValue;
+  }
+
+  // Ensure dropdown reflects target passed in URL
+  if (selectedTarget && callTarget && !callTarget.value) {
+    callTarget.value = selectedTarget;
+  }
+
+  // Auto-dial (e.g. when coming from chat)
+  if (autoDial === "1" && selectedTarget) {
+    // Start the call without forcing media permissions on page load
+    setTimeout(() => {
+      startOutgoing(dialType || "audio");
+    }, 120);
+  }
+
+  // Auto-join after accepting a call
+  if (selectedRoom && autoJoin === "1") {
+    currentRole = selectedRole || "callee";
+    currentCallType = selectedType || "audio";
+    currentSessionId = selectedSession || "";
+    connectSocket(selectedRoom);
+    setStatus("joining… waiting for offer");
+    // We'll request mic/cam when offer arrives; but for quick start, warm it up:
+    ensureLocalStream(currentCallType === "video").catch(() => {
+      setStatus("permission denied or no device");
+    });
+  }
+</script>
+{% endblock %}

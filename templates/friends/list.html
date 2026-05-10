@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="section">
+  <div class="section-header">
+    <h2>Friends</h2>
+    <form class="search-bar compact" method="get" action="{% url 'core:search' %}">
+      <input name="q" placeholder="Search users by name or unique name" />
+    </form>
+  </div>
+  <div class="grid two">
+    <div class="card">
+      <h3>Friend Requests</h3>
+      {% for request in incoming_requests %}
+      <div class="list-item">
+        <span>@{{ request.from_user.unique_name }}</span>
+        <div class="button-row">
+          <form method="post" action="{% url 'friends:accept_request' request.id %}">
+            {% csrf_token %}
+            <button class="button primary" type="submit">Accept</button>
+          </form>
+          <form method="post" action="{% url 'friends:reject_request' request.id %}">
+            {% csrf_token %}
+            <button class="button danger" type="submit">Reject</button>
+          </form>
+        </div>
+      </div>
+      {% empty %}
+      <p class="muted">No new requests.</p>
+      {% endfor %}
+      {% if outgoing_requests %}
+      <h4>Pending Requests</h4>
+      {% for request in outgoing_requests %}
+      <div class="list-item">
+        <span>@{{ request.to_user.unique_name }}</span>
+        <span class="muted">Pending</span>
+      </div>
+      {% endfor %}
+      {% endif %}
+    </div>
+    <div class="card">
+      <h3>Your Friends</h3>
+      {% for item in friend_rooms %}
+      <div class="list-item">
+        <span>@{{ item.friend.unique_name }}</span>
+        <div class="button-row">
+          <a class="button ghost" href="{% url 'users:profile_detail' item.friend.unique_name %}">View</a>
+          <a class="button primary" href="{% url 'chat:room' item.room %}">Message</a>
+          <form method="post" action="{% url 'friends:remove_friend' item.friend.unique_name %}">
+            {% csrf_token %}
+            <button class="button danger" type="submit">Remove</button>
+          </form>
+        </div>
+      </div>
+      {% empty %}
+      <p class="muted">No friends yet.</p>
+      {% endfor %}
+    </div>
+    <div class="card">
+      <h3>Friend Activity</h3>
+      <div class="list">
+        {% for item in activity %}
+        {% if item.user1 == user %}
+        {% with friend=item.user2 %}
+        <div class="list-item">You connected with @{{ friend.unique_name }}</div>
+        {% endwith %}
+        {% else %}
+        {% with friend=item.user1 %}
+        <div class="list-item">You connected with @{{ friend.unique_name }}</div>
+        {% endwith %}
+        {% endif %}
+        {% empty %}
+        <div class="list-item">No recent friend activity.</div>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+</section>
+{% endblock %}

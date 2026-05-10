@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="settings-grid">
+  <div class="card">
+    <h2>Profile settings</h2>
+    <form method="post" enctype="multipart/form-data">
+      {% csrf_token %}
+      {{ form.non_field_errors }}
+      <label>Display Name</label>
+      {{ form.display_name }}
+      <label>Age</label>
+      {{ form.age }}
+      <label>Gender</label>
+      {{ form.gender }}
+      <label>Bio</label>
+      {{ form.bio }}
+      <label>Profile Picture</label>
+      <div class="avatar-preview">
+        {% if user.profile.avatar %}
+        <img src="{{ user.profile.avatar.url }}" alt="avatar" />
+        {% else %}
+        <div class="avatar-circle">{{ user.unique_name|slice:":2"|upper }}</div>
+        {% endif %}
+      </div>
+      {{ form.avatar }}
+      <label>Theme</label>
+      {{ form.theme_preference }}
+      <label>Notifications</label>
+      {{ form.notification_preference }}
+      <label>Privacy</label>
+      {{ form.privacy_setting }}
+      <button class="button primary" type="submit">Save changes</button>
+    </form>
+  </div>
+  <div class="card">
+    <h2>Security</h2>
+    <details class="accordion">
+      <summary>Change password</summary>
+      <form method="post">
+        {% csrf_token %}
+        {{ password_form.non_field_errors }}
+        {{ password_form.as_p }}
+        <button class="button ghost" name="change_password" type="submit">Update password</button>
+      </form>
+    </details>
+  </div>
+</section>
+{% endblock %}

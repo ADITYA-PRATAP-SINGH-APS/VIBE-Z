@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="form-card">
+  <h2>Create group</h2>
+  <form method="post" enctype="multipart/form-data">
+    {% csrf_token %}
+    {{ form.non_field_errors }}
+    <label>Group Name</label>
+    {{ form.name }}
+    <label>Description</label>
+    {{ form.description }}
+    <label>Group Picture</label>
+    {{ form.display_picture }}
+    <label>Keywords/Tags (comma-separated)</label>
+    {{ form.tags }}
+    <div class="tag-suggestions">
+      <div class="muted">Suggested tags (click to add):</div>
+      <div class="tag-chip-row">
+        {% for tag in tag_suggestions %}
+        <button type="button" class="tag-chip" data-tag="{{ tag }}">{{ tag }}</button>
+        {% endfor %}
+      </div>
+    </div>
+    <label>Public Join</label>
+    {{ form.public_join }}
+    <label>Group Rules</label>
+    {{ form.rules }}
+    <button class="button primary" type="submit">Create</button>
+  </form>
+</section>
+{% block page_js %}
+<script>
+  const tagsInput = document.getElementById("id_tags");
+  document.querySelectorAll(".tag-chip").forEach((chip) => {
+    chip.addEventListener("click", () => {
+      if (!tagsInput) return;
+      const tag = chip.dataset.tag;
+      const current = tagsInput.value
+        .split(",")
+        .map((item) => item.trim())
+        .filter(Boolean);
+      if (!current.includes(tag)) {
+        current.push(tag);
+      }
+      tagsInput.value = current.join(", ");
+    });
+  });
+</script>
+{% endblock %}
+{% endblock %}

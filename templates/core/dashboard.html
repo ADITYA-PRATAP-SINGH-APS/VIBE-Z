@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="grid three">
+  <div class="card">
+    <h3>Overview</h3>
+    <div class="list">
+      <div class="list-item">Friends <strong>{{ friend_count }}</strong></div>
+      <div class="list-item">Groups <strong>{{ group_count }}</strong></div>
+      <div class="list-item">Posts <strong>{{ post_count }}</strong></div>
+    </div>
+  </div>
+  <div class="card">
+    <h3>Recent Chats</h3>
+    <div class="list">
+      {% for msg in recent_messages %}
+      <div class="list-item">@{{ msg.sender.unique_name }} • {{ msg.content|truncatechars:40 }}</div>
+      {% empty %}
+      <div class="list-item">No recent messages yet.</div>
+      {% endfor %}
+    </div>
+  </div>
+  <div class="card accent">
+    <h3>Notifications</h3>
+    <p>{{ unread_notifications }} unread notifications</p>
+    <a class="button ghost" href="{% url 'notifications:list' %}">Open inbox</a>
+  </div>
+</section>
+<section class="grid two mt">
+  <div class="card">
+    <h3>Your Groups</h3>
+    <div class="list">
+      {% for membership in recent_groups %}
+      <div class="list-item">{{ membership.group.name }}</div>
+      {% empty %}
+      <div class="list-item">No groups yet.</div>
+      {% endfor %}
+    </div>
+  </div>
+  <div class="card">
+    <h3>Quick Actions</h3>
+    <div class="button-row">
+      <a class="button primary" href="{% url 'posts:feed' %}">Open Feed</a>
+      <a class="button ghost" href="{% url 'groups:list' %}">Browse Groups</a>
+      <a class="button ghost" href="{% url 'chat:inbox' %}">Open Chats</a>
+    </div>
+  </div>
+</section>
+{% endblock %}

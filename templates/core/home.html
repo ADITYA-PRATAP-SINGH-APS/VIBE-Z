@@ -1,0 +1,22 @@
+{% extends "main.html" %}
+{% block content %}
+<section class="grid two">
+  <div class="card">
+    <h2>Welcome to VIBE-Z</h2>
+    <div class="funky-quote" data-topic-quote>
+      <span class="funky-quote-label">Today’s vibe:</span>
+      <span class="funky-quote-text">“GG in the chat — push the commit and ping the squad.”</span>
+    </div>
+    <p>Clean, colorful, and made for communities, friends, and creators.</p>
+    <a class="button primary" href="{% url 'accounts:register' %}">Join now</a>
+  </div>
+  <div class="card accent">
+    <h3>What you can do</h3>
+    <ul class="feature-list">
+      <li>Chat with friends and groups</li>
+      <li>Share posts and media</li>
+      <li>Join voice rooms and calls</li>
+    </ul>
+  </div>
+</section>
+{% endblock %}

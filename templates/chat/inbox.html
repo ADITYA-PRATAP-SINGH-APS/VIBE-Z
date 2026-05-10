@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="section">
+  <h2>Chat Inbox</h2>
+  <div class="grid three">
+    <div class="card">
+      <h3>Recent Chats</h3>
+      <div class="list">
+        {% for msg in recent_messages %}
+        <div class="list-item">
+          @{{ msg.sender.unique_name }} •
+          {% if msg.content %}
+            {{ msg.content|truncatechars:40 }}
+          {% elif msg.has_audio %}
+            🎙️ Voice note
+          {% elif msg.has_media %}
+            📎 Media
+          {% else %}
+            <span class="muted">…</span>
+          {% endif %}
+        </div>
+        {% empty %}
+        <div class="list-item">No recent messages yet.</div>
+        {% endfor %}
+      </div>
+    </div>
+    <div class="card">
+      <h3>Direct Messages</h3>
+      {% for item in dm_rooms %}
+      <a class="list-item" href="{% url 'chat:room' item.room %}">@{{ item.friend.unique_name }}</a>
+      {% empty %}
+      <p class="muted">No friends yet. Add friends to start DMs.</p>
+      {% endfor %}
+    </div>
+    <div class="card">
+      <h3>Your Groups</h3>
+      {% for membership in memberships %}
+      <a class="list-item" href="{% url 'chat:room' membership.group.id %}">{{ membership.group.name }}</a>
+      {% empty %}
+      <p class="muted">No group memberships yet.</p>
+      {% endfor %}
+    </div>
+  </div>
+</section>
+{% endblock %}

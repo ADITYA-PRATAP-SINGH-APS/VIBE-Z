@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% load core_tags %}
+{% block content %}
+<section class="section">
+  <div class="card">
+    <h2>{{ group.name }}</h2>
+    <p>{{ group.description }}</p>
+    <div class="card-tags">
+      {% for tag in group.tags|split_tags|slice:":10" %}
+      <span>#{{ tag }}</span>
+      {% endfor %}
+    </div>
+    <div class="button-row">
+      {% if is_member %}
+      <a class="button primary" href="{% url 'chat:room' group.id %}">Open Chat</a>
+      <a class="button danger" href="{% url 'groups:leave' group.id %}">Leave</a>
+      {% else %}
+      <a class="button ghost" href="{% url 'groups:join' group.id %}">Join</a>
+      {% endif %}
+      <a class="button ghost" href="{% url 'groups:pin' group.id %}">Pin</a>
+    </div>
+  </div>
+  {% if update_form %}
+  <div class="card">
+    <h3>Admin settings</h3>
+    <form method="post" enctype="multipart/form-data" action="{% url 'groups:update' group.id %}">
+      {% csrf_token %}
+      {{ update_form.description }}
+      {{ update_form.display_picture }}
+      {{ update_form.tags }}
+      {{ update_form.public_join }}
+      {{ update_form.rules }}
+      <button class="button primary" type="submit">Update group</button>
+    </form>
+  </div>
+  {% endif %}
+  <div class="card">
+    <h3>Members</h3>
+    <div class="list">
+      {% for membership in members %}
+      <div class="list-item">@{{ membership.user.unique_name }} • {{ membership.role }}</div>
+      {% empty %}
+      <p class="muted">No members yet.</p>
+      {% endfor %}
+    </div>
+  </div>
+</section>
+{% endblock %}

@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="hero">
+  <div class="hero-content">
+    <h1>Modern, social, and built for real-time connection.</h1>
+    <p>
+      VIBE-Z brings chats, groups, calls, and social feeds together in a sleek, premium interface.
+    </p>
+    <div class="hero-actions">
+      <a class="button primary" href="{% url 'accounts:register' %}">Create Account</a>
+      <a class="button ghost" href="{% url 'core:discover' %}">Discover</a>
+    </div>
+  </div>
+  <div class="hero-card">
+    <div class="card glow">
+      <h3>Live Spaces</h3>
+      <p>Join groups, share media, and start voice rooms instantly.</p>
+      <div class="card-tags">
+        <span>#coding</span>
+        <span>#gaming</span>
+        <span>#music</span>
+        <span>#design</span>
+      </div>
+    </div>
+  </div>
+</section>
+{% endblock %}

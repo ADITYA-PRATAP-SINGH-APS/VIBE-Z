@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% load core_tags %}
+{% block content %}
+<section class="section">
+  <div class="section-header">
+    <h2>Groups</h2>
+    <a class="button primary" href="{% url 'groups:create' %}">Create Group</a>
+  </div>
+  <form class="search-bar compact" method="get">
+    <input name="q" placeholder="Search by keyword or name" value="{{ query }}" />
+  </form>
+  <div class="grid three">
+    {% for group in groups %}
+    <div class="card">
+      <h4>{{ group.name }}</h4>
+      <p class="muted">{{ group.description|truncatechars:90 }}</p>
+      <div class="card-tags">
+        {% for tag in group.tags|split_tags|slice:":6" %}
+        <span>#{{ tag }}</span>
+        {% endfor %}
+      </div>
+      <div class="button-row">
+        <a class="button ghost" href="{% url 'groups:detail' group.id %}">View</a>
+        {% if group.id in member_group_ids %}
+        <a class="button primary" href="{% url 'chat:room' group.id %}">Chat</a>
+        {% elif group.public_join %}
+        <a class="button primary" href="{% url 'groups:join' group.id %}">Join</a>
+        {% endif %}
+      </div>
+    </div>
+    {% empty %}
+    <div class="card empty-state">No groups yet.</div>
+    {% endfor %}
+  </div>
+</section>
+{% endblock %}

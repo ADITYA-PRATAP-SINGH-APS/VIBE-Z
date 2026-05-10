@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% load core_tags %}
+{% block content %}
+<section class="section">
+  <h2>Discover</h2>
+  <div class="grid three" data-infinite>
+    {% for user in users %}
+    <div class="card">
+      {% if user.profile.avatar %}
+      <img src="{{ user.profile.avatar.url }}" alt="avatar" class="avatar-circle" />
+      {% else %}
+      <div class="avatar-circle">{{ user.unique_name|slice:":2"|upper }}</div>
+      {% endif %}
+      <h4>{{ user.profile.display_name|default:user.full_name }}</h4>
+      <p class="muted">@{{ user.unique_name }}</p>
+      <a class="button ghost" href="{% url 'users:profile_detail' user.unique_name %}">View profile</a>
+    </div>
+    {% empty %}
+    <div class="card empty-state">No users yet.</div>
+    {% endfor %}
+  </div>
+  <h3 class="mt">Trending Groups</h3>
+  <div class="grid three">
+    {% for group in groups %}
+    <div class="card">
+      <h4>{{ group.name }}</h4>
+      <p class="muted">{{ group.description|truncatechars:80 }}</p>
+      <div class="card-tags">
+        {% for tag in group.tags|split_tags|slice:":5" %}
+        <span>#{{ tag }}</span>
+        {% endfor %}
+      </div>
+      <a class="button primary" href="{% url 'groups:detail' group.id %}">Open group</a>
+    </div>
+    {% empty %}
+    <div class="card empty-state">No groups yet.</div>
+    {% endfor %}
+  </div>
+</section>
+{% endblock %}

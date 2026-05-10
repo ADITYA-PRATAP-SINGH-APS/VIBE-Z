@@ -1,0 +1,88 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>VIBE-Z Social</title>
+    <link rel="stylesheet" href="{% static 'css/style.css' %}" />
+  </head>
+  <body class="theme-dark">
+    <div class="app-shell">
+      <aside class="sidebar" id="sidebar">
+        <div class="brand vibe-logo" aria-label="VIBE-Z">
+          <span class="vibe-logo-text">VIBE-Z</span>
+        </div>
+        <nav class="nav-links">
+          <a class="{% if request.path == '/' %}active{% endif %}" href="{% url 'core:home' %}">Home</a>
+          <a class="{% if request.path|slice:':11' == '/dashboard/' %}active{% endif %}" href="{% url 'core:dashboard' %}">Dashboard</a>
+          <a class="{% if request.path|slice:':7' == '/posts/' %}active{% endif %}" href="{% url 'posts:feed' %}">Feed</a>
+          <a class="{% if request.path|slice:':6' == '/chat/' %}active{% endif %}" href="{% url 'chat:inbox' %}">Chats</a>
+          <a class="{% if request.path|slice:':8' == '/groups/' %}active{% endif %}" href="{% url 'groups:list' %}">Groups</a>
+          <a class="{% if request.path|slice:':9' == '/friends/' %}active{% endif %}" href="{% url 'friends:list' %}">Friends</a>
+          <a class="{% if request.path|slice:':15' == '/notifications/' %}active{% endif %}" href="{% url 'notifications:list' %}">Notifications</a>
+          <a class="{% if request.path|slice:':7' == '/calls/' %}active{% endif %}" href="{% url 'calls:screen' %}">Calls</a>
+        </nav>
+        <div class="sidebar-footer">
+          {% if user.is_authenticated %}
+          <div class="mini-profile">
+            <div class="status-dot {% if user.is_online %}online{% else %}offline{% endif %}"></div>
+            <div>
+              <strong>{{ user.profile.display_name|default:user.full_name }}</strong>
+              <div class="muted">@{{ user.unique_name }}</div>
+            </div>
+          </div>
+          <a class="button ghost" href="{% url 'users:settings' %}">Settings</a>
+          <a class="button danger" href="{% url 'accounts:logout' %}">Logout</a>
+          {% else %}
+          <a class="button primary" href="{% url 'accounts:login' %}">Login</a>
+          <a class="button ghost" href="{% url 'accounts:register' %}">Register</a>
+          {% endif %}
+        </div>
+      </aside>
+      <div class="content">
+        <header class="topbar">
+          <button class="icon-button" id="menuToggle">☰</button>
+          <div class="search-wrap">
+            <form class="search-bar" action="{% url 'core:search' %}" method="get">
+              <input type="text" name="q" id="searchInput" placeholder="Search users or unique names" />
+            </form>
+            <div class="search-suggestions" id="searchSuggestions"></div>
+          </div>
+          <div class="topbar-actions">
+            <button class="icon-button" id="themeToggle">🌙</button>
+            {% if notifications_count > 0 %}
+            <a class="badge" href="{% url 'notifications:list' %}">{{ notifications_count }}</a>
+            {% endif %}
+          </div>
+        </header>
+        <main class="main-content">
+          {% if user.is_authenticated %}
+          <div class="call-popup" id="globalCallPopup" aria-hidden="true"></div>
+          {% endif %}
+          {% if messages %}
+          <div class="message-stack">
+            {% for message in messages %}
+            <div class="message {{ message.tags }}">{{ message }}</div>
+            {% endfor %}
+          </div>
+          {% endif %}
+          {% block content %}{% endblock %}
+        </main>
+      </div>
+    </div>
+    <div class="toast" id="toast">Action completed</div>
+
+    <!-- Ensures csrftoken cookie exists for JS fetch() calls (including call popup) -->
+    <form style="display:none" aria-hidden="true">{% csrf_token %}</form>
+
+    {% if user.is_authenticated %}
+    <script>
+      window.VIBEZ_USER_ID = "{{ user.id }}";
+      window.VIBEZ_USER_UNIQUE = "{{ user.unique_name|escapejs }}";
+    </script>
+    {% endif %}
+    <script src="{% static 'js/app.js' %}"></script>
+    {% block page_js %}{% endblock %}
+  </body>
+</html>

@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="section">
+  <div class="section-header">
+    <h2>Feed</h2>
+  </div>
+  <div class="card">
+    <form method="post" enctype="multipart/form-data" action="{% url 'posts:create' %}">
+      {% csrf_token %}
+      {{ form.non_field_errors }}
+      {{ form.content }}
+      {{ form.image }}
+      {{ form.visibility }}
+      <button class="button primary" type="submit">Post</button>
+    </form>
+  </div>
+  <div class="feed">
+    {% for post in posts %}
+    <div class="card">
+      <div class="post-header">
+        <strong>@{{ post.author.unique_name }}</strong>
+        <span class="muted">{{ post.created_at|timesince }} ago</span>
+      </div>
+      <p>{{ post.content }}</p>
+      {% if post.image %}
+      <img src="{{ post.image.url }}" alt="post image" class="post-image" />
+      {% endif %}
+      <div class="button-row">
+        <form method="post" action="{% url 'posts:react' post.id 'like' %}">
+          {% csrf_token %}
+          <button class="button ghost" type="submit">Like ({{ post.like_count }})</button>
+        </form>
+        <form method="post" action="{% url 'posts:react' post.id 'dislike' %}">
+          {% csrf_token %}
+          <button class="button danger" type="submit">Dislike ({{ post.dislike_count }})</button>
+        </form>
+      </div>
+      <form method="post" action="{% url 'posts:comment' post.id %}">
+        {% csrf_token %}
+        <input name="content" placeholder="Add comment" />
+        <button class="button ghost" type="submit">Comment</button>
+      </form>
+      <div class="report-widget" data-report-widget>
+        <button class="button danger report-trigger" type="button" data-report-open aria-expanded="false">
+          Report
+        </button>
+        <div class="report-panel" data-report-panel aria-hidden="true">
+          <form method="post" action="{% url 'core:report' %}" data-report-form>
+            {% csrf_token %}
+            <input type="hidden" name="target_post_id" value="{{ post.id }}" />
+            <input type="hidden" name="next" value="{{ request.path }}" />
+            <textarea name="reason" placeholder="Tell us what’s wrong…" required rows="2"></textarea>
+            <div class="button-row">
+              <button class="button danger" type="submit" data-report-submit>Send report</button>
+              <button class="button ghost" type="button" data-report-cancel>Cancel</button>
+            </div>
+          </form>
+        </div>
+      </div>
+      <div class="comments">
+        {% for comment in post.comments.all %}
+        <div class="comment">@{{ comment.user.unique_name }}: {{ comment.content }}</div>
+        {% empty %}
+        <div class="muted">No comments yet.</div>
+        {% endfor %}
+      </div>
+    </div>
+    {% empty %}
+    <div class="card empty-state">No posts yet.</div>
+    {% endfor %}
+  </div>
+</section>
+{% endblock %}

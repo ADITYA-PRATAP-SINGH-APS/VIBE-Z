@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="section center">
+  <div class="card error-card">
+    <h2>404</h2>
+    <p>We couldn't find that page. Try heading back to the dashboard.</p>
+    <a class="button primary" href="{% url 'core:dashboard' %}">Go to dashboard</a>
+  </div>
+</section>
+{% endblock %}

@@ -1,0 +1,838 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="chat-room">
+  <div class="chat-header">
+    {% if group %}
+    <h2>{{ group.name }}</h2>
+    <div class="muted">Group chat</div>
+    {% elif recipient %}
+    <div class="chat-header-row">
+      <div>
+        <h2>@{{ recipient.unique_name }}</h2>
+        <div class="muted">Direct message</div>
+      </div>
+      <button class="button ghost" type="button" id="chatCallBtn" data-call-user-id="{{ recipient.id }}" data-call-name="{{ recipient.unique_name|escapejs }}">Call</button>
+    </div>
+    {% else %}
+    <h2>Room {{ room_name }}</h2>
+    {% endif %}
+    <div class="muted" id="chatStatus">Status: connecting</div>
+  </div>
+
+  {% if recipient %}
+  <div class="call-choice-overlay" id="callChoiceOverlay" aria-hidden="true">
+    <div class="call-choice-card">
+      <div>
+        <strong>Start a call</strong>
+        <div class="muted">Call @{{ recipient.unique_name }}</div>
+      </div>
+      <div class="button-row" style="margin-top: 12px;">
+        <button class="button ghost" type="button" data-call-choice="audio">Audio</button>
+        <button class="button primary" type="button" data-call-choice="video">Video</button>
+        <button class="button danger" type="button" data-call-close>Cancel</button>
+      </div>
+      <div class="muted" id="callChoiceStatus" style="margin-top: 10px;"></div>
+    </div>
+  </div>
+  {% endif %}
+
+  <div class="chat-messages" id="chatMessages">
+    {% for msg in chat_messages %}
+    <div class="chat-line">
+      <div class="chat-avatar">
+        {% if msg.sender.profile.avatar %}
+        <img src="{{ msg.sender.profile.avatar.url }}" alt="avatar" />
+        {% else %}
+        <span>{{ msg.sender.unique_name|slice:":1"|upper }}</span>
+        {% endif %}
+      </div>
+      <div class="message bubble">
+      {% if msg.is_deleted %}
+      <em class="muted">Message deleted</em>
+      {% else %}
+      {% if msg.reply_to %}
+      <div class="muted">Replying to @{{ msg.reply_to.sender.unique_name }}: {{ msg.reply_to.content|truncatechars:40 }}</div>
+      {% endif %}
+      {% if msg.poll %}
+      <div class="poll-card" data-poll-id="{{ msg.poll.id }}">
+        <div class="poll-question">📊 {{ msg.poll.question }}</div>
+        <div class="poll-options">
+          {% for opt in msg.poll.options.all %}
+          <button class="button ghost poll-option" type="button" data-poll-option-id="{{ opt.id }}">
+            <span>{{ opt.text }}</span>
+            <span class="muted" data-poll-votes="{{ opt.id }}">{{ opt.votes_count }} vote{{ opt.votes_count|pluralize }}</span>
+          </button>
+          {% endfor %}
+        </div>
+      </div>
+      {% else %}
+      <strong>@{{ msg.sender.unique_name }}</strong> {{ msg.content }}
+      {% if msg.sender == user and msg.is_seen %}
+      <span class="muted">Seen</span>
+      {% endif %}
+      <button class="button ghost reply-btn" data-reply-id="{{ msg.id }}" data-reply-name="{{ msg.sender.unique_name }}" type="button">Reply</button>
+      {% if msg.sender == user %}
+      <a class="button ghost" href="{% url 'chat:delete_message' msg.id %}">Delete</a>
+      {% endif %}
+      {% with media_list=msg.media.all %}
+      {% if media_list %}
+      <div class="media-grid">
+        {% for media in media_list %}
+          {% if media.media_type == "image" %}
+          <img src="{{ media.media_file.url }}" alt="chat media" class="chat-media" />
+          {% elif media.media_type == "audio" %}
+          <div class="voice-msg" data-voice-player>
+            <button class="voice-play" type="button" aria-label="Play voice note">►</button>
+            <div class="voice-body">
+              <div class="voice-top">
+                <div class="voice-title">Voice note</div>
+                <div class="voice-time"><span data-voice-current>00:00</span> / <span data-voice-duration>00:00</span></div>
+              </div>
+              <div class="voice-track" data-voice-track>
+                <div class="voice-progress" data-voice-progress></div>
+                <div class="voice-wave-mini" aria-hidden="true">
+                  <span class="bar"></span><span class="bar"></span><span class="bar"></span><span class="bar"></span><span class="bar"></span><span class="bar"></span><span class="bar"></span>
+                  <span class="bar"></span><span class="bar"></span><span class="bar"></span><span class="bar"></span><span class="bar"></span><span class="bar"></span><span class="bar"></span>
+                </div>
+              </div>
+            </div>
+            <audio preload="metadata" src="{{ media.media_file.url }}"></audio>
+          </div>
+          {% elif media.media_type == "video" %}
+          <video controls src="{{ media.media_file.url }}" class="chat-media"></video>
+          {% endif %}
+        {% endfor %}
+      </div>
+      {% endif %}
+      {% endwith %}
+      {% endif %}
+      {% endif %}
+      </div>
+    </div>
+    {% empty %}
+    <div class="message bubble">Welcome to the room.</div>
+    {% endfor %}
+  </div>
+  <div class="muted" id="typingIndicator"></div>
+  <div class="chat-tools">
+    <button class="button ghost" type="button" id="pollToggle">📊 Poll</button>
+    <button class="button ghost" type="button" id="voiceToggle">🎙️ Voice</button>
+  </div>
+
+  <div class="poll-panel" id="pollPanel" aria-hidden="true">
+    <form id="pollForm" method="post" action="{% url 'chat:create_poll' room_name %}">
+      {% csrf_token %}
+      <input type="text" name="question" id="pollQuestion" placeholder="Poll question…" maxlength="200" required />
+      <div class="poll-option-inputs" id="pollOptionInputs">
+        <input type="text" name="option_1" placeholder="Option 1" required />
+        <input type="text" name="option_2" placeholder="Option 2" required />
+      </div>
+      <div class="button-row">
+        <button class="button primary" type="submit">Send poll</button>
+        <button class="button ghost" type="button" id="pollAddOption">+ option</button>
+        <button class="button ghost" type="button" id="pollCancel">Cancel</button>
+      </div>
+    </form>
+  </div>
+
+  <div class="voice-panel" id="voicePanel" aria-hidden="true">
+    <div class="voice-head">
+      <div class="muted" id="voiceStatus">Tap record to send a voice note.</div>
+      <div class="voice-timer" id="voiceTimer">00:00</div>
+    </div>
+    <div class="voice-wave" id="voiceWave" aria-hidden="true">
+      <span class="bar"></span><span class="bar"></span><span class="bar"></span><span class="bar"></span><span class="bar"></span><span class="bar"></span>
+      <span class="bar"></span><span class="bar"></span><span class="bar"></span><span class="bar"></span><span class="bar"></span><span class="bar"></span>
+    </div>
+    <div class="button-row voice-actions">
+      <button class="button voice-btn voice-record" type="button" id="voiceRecord">Record</button>
+      <button class="button ghost voice-btn voice-stop" type="button" id="voiceStop" disabled>Stop</button>
+      <button class="button ghost voice-btn voice-cancel" type="button" id="voiceCancel">Cancel</button>
+    </div>
+  </div>
+
+  <form class="chat-input" id="chatForm" method="post" action="{% url 'chat:send_message' room_name %}">
+    {% csrf_token %}
+    <input type="text" id="chatMessageInput" name="content" placeholder="Type a message..." />
+    <input type="hidden" id="replyToId" name="reply_to_id" />
+    <button class="button ghost" type="button" id="emojiToggle">😊</button>
+    <button class="button primary" type="submit">Send</button>
+  </form>
+
+  <form class="chat-input" id="chatMediaForm" method="post" enctype="multipart/form-data" action="{% url 'chat:send_media' room_name %}">
+    {% csrf_token %}
+    {% if not group %}
+    <input type="text" name="content" id="mediaCaption" placeholder="Caption (optional)" />
+    {% endif %}
+    <input type="file" name="media_file" id="mediaFile" />
+    <button class="button ghost" type="submit">Send Media</button>
+  </form>
+  <div class="emoji-picker" id="emojiPicker">
+    <span>😀</span><span>😁</span><span>😂</span><span>🤣</span><span>😊</span><span>😍</span><span>😎</span><span>😭</span><span>😡</span><span>👍</span>
+    <span>👎</span><span>🙏</span><span>👏</span><span>🙌</span><span>🔥</span><span>✨</span><span>🎉</span><span>🎯</span><span>💯</span><span>💬</span>
+    <span>❤️</span><span>💔</span><span>🤍</span><span>💙</span><span>💚</span><span>💛</span><span>🧡</span><span>💜</span><span>🤝</span><span>🚀</span>
+    <span>🌟</span><span>☕</span><span>🍕</span><span>🎧</span><span>⚡</span><span>✅</span><span>❌</span><span>👀</span><span>🙃</span><span>🤔</span>
+  </div>
+</section>
+{% endblock %}
+{% block page_js %}
+<script>
+  const roomName = "{{ room_name }}";
+  const wsScheme = window.location.protocol === "https:" ? "wss" : "ws";
+  const socket = new WebSocket(`${wsScheme}://${window.location.host}/ws/chat/${roomName}/`);
+  const messages = document.getElementById("chatMessages");
+  const form = document.getElementById("chatForm");
+  const input = document.getElementById("chatMessageInput");
+  const typingIndicator = document.getElementById("typingIndicator");
+  const chatStatus = document.getElementById("chatStatus");
+  const replyToId = document.getElementById("replyToId");
+  const emojiToggle = document.getElementById("emojiToggle");
+  const emojiPicker = document.getElementById("emojiPicker");
+  const currentUser = "{{ user.unique_name }}";
+  let socketOpen = false;
+
+  // --- Call chooser (from chat header) ---
+  (function initChatCallChooser() {
+    const btn = document.getElementById("chatCallBtn");
+    const overlay = document.getElementById("callChoiceOverlay");
+    const statusEl = document.getElementById("callChoiceStatus");
+    if (!btn || !overlay) return;
+
+    const userId = btn.getAttribute("data-call-user-id");
+
+    function open() {
+      overlay.classList.add("show");
+      overlay.setAttribute("aria-hidden", "false");
+      if (statusEl) statusEl.textContent = "";
+    }
+
+    function close() {
+      overlay.classList.remove("show");
+      overlay.setAttribute("aria-hidden", "true");
+      if (statusEl) statusEl.textContent = "";
+    }
+
+    btn.addEventListener("click", open);
+
+    overlay.addEventListener("click", (e) => {
+      if (e.target === overlay) close();
+    });
+
+    const closeBtn = overlay.querySelector("[data-call-close]");
+    if (closeBtn) closeBtn.addEventListener("click", close);
+
+    overlay.querySelectorAll("[data-call-choice]").forEach((choiceBtn) => {
+      choiceBtn.addEventListener("click", async () => {
+        const callType = choiceBtn.getAttribute("data-call-choice") || "audio";
+        try {
+          choiceBtn.disabled = true;
+          if (statusEl) statusEl.textContent = "Checking microphone/camera…";
+
+          // Ask permission here (user gesture), so the call page can proceed smoothly.
+          const stream = await navigator.mediaDevices.getUserMedia({
+            audio: true,
+            video: callType === "video",
+          });
+          stream.getTracks().forEach((t) => t.stop());
+
+          if (statusEl) statusEl.textContent = "Connecting…";
+          window.location.href = `/calls/?target=user:${userId}&dial=1&dial_type=${callType}`;
+        } catch {
+          if (statusEl) statusEl.textContent = "Permission denied or no device.";
+          choiceBtn.disabled = false;
+        }
+      });
+    });
+  })();
+
+  socket.onopen = () => {
+    socketOpen = true;
+    chatStatus.textContent = "Status: connected";
+  };
+
+  socket.onclose = () => {
+    socketOpen = false;
+    chatStatus.textContent = "Status: disconnected (using fallback)";
+  };
+
+  function getCookie(name) {
+    const value = `; ${document.cookie}`;
+    const parts = value.split(`; ${name}=`);
+    if (parts.length === 2) return parts.pop().split(";").shift();
+  }
+
+  // --- Voice message player (custom UI) ---
+  let activeVoiceAudio = null;
+
+  function fmtTimeSec(seconds) {
+    const s = Math.max(0, Math.floor(Number(seconds || 0)));
+    const m = Math.floor(s / 60);
+    const r = s % 60;
+    return `${String(m).padStart(2, "0")}:${String(r).padStart(2, "0")}`;
+  }
+
+  function wireVoicePlayer(root) {
+    if (!root || root.__voiceWired) return;
+    root.__voiceWired = true;
+
+    const audio = root.querySelector("audio");
+    const playBtn = root.querySelector(".voice-play");
+    const currentEl = root.querySelector("[data-voice-current]");
+    const durationEl = root.querySelector("[data-voice-duration]");
+    const progressEl = root.querySelector("[data-voice-progress]");
+    const trackEl = root.querySelector("[data-voice-track]");
+
+    if (!audio || !playBtn || !progressEl || !trackEl) return;
+
+    const updateDuration = () => {
+      if (durationEl && isFinite(audio.duration)) durationEl.textContent = fmtTimeSec(audio.duration);
+    };
+
+    const updateProgress = () => {
+      const dur = isFinite(audio.duration) && audio.duration > 0 ? audio.duration : 0;
+      const pct = dur ? Math.min(1, Math.max(0, audio.currentTime / dur)) : 0;
+      progressEl.style.width = `${pct * 100}%`;
+      if (currentEl) currentEl.textContent = fmtTimeSec(audio.currentTime);
+    };
+
+    const setPlayingUI = (isPlaying) => {
+      root.classList.toggle("is-playing", isPlaying);
+      playBtn.textContent = isPlaying ? "❚❚" : "►";
+    };
+
+    playBtn.addEventListener("click", async () => {
+      try {
+        if (audio.paused) {
+          if (activeVoiceAudio && activeVoiceAudio !== audio) {
+            activeVoiceAudio.pause();
+          }
+          activeVoiceAudio = audio;
+          await audio.play();
+        } else {
+          audio.pause();
+        }
+      } catch {
+        showToast("Can't play audio", "error");
+      }
+    });
+
+    trackEl.addEventListener("click", (e) => {
+      const rect = trackEl.getBoundingClientRect();
+      const x = Math.min(rect.width, Math.max(0, e.clientX - rect.left));
+      const dur = isFinite(audio.duration) && audio.duration > 0 ? audio.duration : 0;
+      if (dur) audio.currentTime = (x / rect.width) * dur;
+    });
+
+    audio.addEventListener("loadedmetadata", () => {
+      updateDuration();
+      updateProgress();
+    });
+    audio.addEventListener("timeupdate", updateProgress);
+    audio.addEventListener("play", () => setPlayingUI(true));
+    audio.addEventListener("pause", () => setPlayingUI(false));
+    audio.addEventListener("ended", () => {
+      setPlayingUI(false);
+      audio.currentTime = 0;
+      updateProgress();
+    });
+
+    // initial
+    updateDuration();
+    updateProgress();
+    setPlayingUI(false);
+  }
+
+  function wireAllVoicePlayers(scope = document) {
+    scope.querySelectorAll("[data-voice-player]").forEach((el) => wireVoicePlayer(el));
+  }
+
+  function createVoicePlayer(url) {
+    const root = document.createElement("div");
+    root.className = "voice-msg";
+    root.dataset.voicePlayer = "";
+
+    const btn = document.createElement("button");
+    btn.className = "voice-play";
+    btn.type = "button";
+    btn.setAttribute("aria-label", "Play voice note");
+    btn.textContent = "►";
+
+    const body = document.createElement("div");
+    body.className = "voice-body";
+
+    const top = document.createElement("div");
+    top.className = "voice-top";
+
+    const title = document.createElement("div");
+    title.className = "voice-title";
+    title.textContent = "Voice note";
+
+    const time = document.createElement("div");
+    time.className = "voice-time";
+    time.innerHTML = '<span data-voice-current>00:00</span> / <span data-voice-duration>00:00</span>';
+
+    top.appendChild(title);
+    top.appendChild(time);
+
+    const track = document.createElement("div");
+    track.className = "voice-track";
+    track.dataset.voiceTrack = "";
+
+    const prog = document.createElement("div");
+    prog.className = "voice-progress";
+    prog.dataset.voiceProgress = "";
+
+    const wave = document.createElement("div");
+    wave.className = "voice-wave-mini";
+    wave.setAttribute("aria-hidden", "true");
+    wave.innerHTML = new Array(14).fill('<span class="bar"></span>').join("");
+
+    track.appendChild(prog);
+    track.appendChild(wave);
+
+    body.appendChild(top);
+    body.appendChild(track);
+
+    const audio = document.createElement("audio");
+    audio.preload = "metadata";
+    audio.src = url;
+
+    root.appendChild(btn);
+    root.appendChild(body);
+    root.appendChild(audio);
+
+    wireVoicePlayer(root);
+    return root;
+  }
+
+  wireAllVoicePlayers(document);
+
+  function renderPoll(poll) {
+    const wrap = document.createElement("div");
+    wrap.className = "poll-card";
+    wrap.dataset.pollId = poll.id;
+
+    const q = document.createElement("div");
+    q.className = "poll-question";
+    q.textContent = `📊 ${poll.question}`;
+    wrap.appendChild(q);
+
+    const opts = document.createElement("div");
+    opts.className = "poll-options";
+    (poll.options || []).forEach((opt) => {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "button ghost poll-option";
+      btn.dataset.pollOptionId = opt.id;
+
+      const left = document.createElement("span");
+      left.textContent = opt.text;
+
+      const right = document.createElement("span");
+      right.className = "muted";
+      right.dataset.pollVotes = opt.id;
+      right.textContent = `${opt.votes || 0} vote${opt.votes === 1 ? "" : "s"}`;
+
+      btn.appendChild(left);
+      btn.appendChild(right);
+      btn.addEventListener("click", () => voteOnPoll(poll.id, opt.id, wrap));
+
+      opts.appendChild(btn);
+    });
+    wrap.appendChild(opts);
+    return wrap;
+  }
+
+  function applyPollUpdate(poll) {
+    const wrap = document.querySelector(`[data-poll-id='${poll.id}']`) || document.querySelector(`.poll-card[data-poll-id='${poll.id}']`) || document.querySelector(`.poll-card[data-poll-id="${poll.id}"]`);
+    if (!wrap) return;
+    (poll.options || []).forEach((opt) => {
+      const el = wrap.querySelector(`[data-poll-votes='${opt.id}']`);
+      if (el) el.textContent = `${opt.votes} vote${opt.votes === 1 ? "" : "s"}`;
+    });
+  }
+
+  async function voteOnPoll(pollId, optionId, wrapEl) {
+    try {
+      const res = await fetch(`/chat/poll/${pollId}/vote/`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+          "X-Requested-With": "XMLHttpRequest",
+          "X-CSRFToken": getCookie("csrftoken"),
+        },
+        body: new URLSearchParams({ option_id: String(optionId) }).toString(),
+      });
+      const data = await res.json();
+      if (!data.ok) {
+        showToast(data.error || "Vote failed", "error");
+        return;
+      }
+      applyPollUpdate(data.poll);
+      showToast("Vote saved", "success");
+    } catch (e) {
+      showToast("Vote failed", "error");
+    }
+  }
+
+  socket.onmessage = (event) => {
+    const data = JSON.parse(event.data);
+    if (data.event === "typing") {
+      typingIndicator.textContent = `${data.sender} is typing...`;
+      setTimeout(() => (typingIndicator.textContent = ""), 1200);
+      return;
+    }
+
+    if (data.event === "poll") {
+      const div = document.createElement("div");
+      div.className = "message bubble";
+      const sender = document.createElement("strong");
+      sender.textContent = `@${data.sender}`;
+      div.appendChild(sender);
+      div.appendChild(document.createTextNode(" "));
+      div.appendChild(renderPoll(data.poll));
+      messages.appendChild(div);
+      messages.scrollTop = messages.scrollHeight;
+      return;
+    }
+
+    if (data.event === "poll_update") {
+      applyPollUpdate(data.poll);
+      return;
+    }
+
+    if (data.event === "media") {
+      const div = document.createElement("div");
+      div.className = "message bubble";
+      const sender = document.createElement("strong");
+      sender.textContent = `@${data.sender}`;
+      div.appendChild(sender);
+
+      if (data.caption) {
+        const cap = document.createElement("div");
+        cap.textContent = ` ${data.caption}`;
+        div.appendChild(cap);
+      }
+
+      const grid = document.createElement("div");
+      grid.className = "media-grid";
+      (data.media || []).forEach((m) => {
+        if (m.type === "image") {
+          const img = document.createElement("img");
+          img.src = m.url;
+          img.className = "chat-media";
+          grid.appendChild(img);
+        } else if (m.type === "audio") {
+          grid.appendChild(createVoicePlayer(m.url));
+        } else if (m.type === "video") {
+          const video = document.createElement("video");
+          video.controls = true;
+          video.src = m.url;
+          video.className = "chat-media";
+          grid.appendChild(video);
+        }
+      });
+      div.appendChild(grid);
+      wireAllVoicePlayers(div);
+
+      messages.appendChild(div);
+      messages.scrollTop = messages.scrollHeight;
+      return;
+    }
+
+    // default text message
+    const div = document.createElement("div");
+    div.className = "message bubble";
+    if (data.reply_to) {
+      const reply = document.createElement("div");
+      reply.className = "muted";
+      reply.textContent = `Replying to @${data.reply_to.sender}: ${data.reply_to.content.slice(0, 40)}`;
+      div.appendChild(reply);
+    }
+    const content = document.createElement("div");
+    const sender = document.createElement("strong");
+    sender.textContent = `@${data.sender}`;
+    const text = document.createElement("span");
+    text.textContent = ` ${data.message}`;
+    content.appendChild(sender);
+    content.appendChild(text);
+    div.appendChild(content);
+    messages.appendChild(div);
+    messages.scrollTop = messages.scrollHeight;
+  };
+
+  form.addEventListener("submit", (e) => {
+    if (!input.value.trim()) return;
+    if (!socketOpen) {
+      return;
+    }
+    e.preventDefault();
+    socket.send(
+      JSON.stringify({
+        event: "message",
+        message: input.value,
+        reply_to_id: replyToId.value || null,
+        sender: currentUser,
+      }),
+    );
+    input.value = "";
+    replyToId.value = "";
+  });
+
+  // Poll + Voice panels
+  const pollToggle = document.getElementById("pollToggle");
+  const pollPanel = document.getElementById("pollPanel");
+  const pollForm = document.getElementById("pollForm");
+  const pollOptionInputs = document.getElementById("pollOptionInputs");
+  const pollAddOption = document.getElementById("pollAddOption");
+  const pollCancel = document.getElementById("pollCancel");
+
+  const voiceToggle = document.getElementById("voiceToggle");
+  const voicePanel = document.getElementById("voicePanel");
+  const voiceStatus = document.getElementById("voiceStatus");
+  const voiceTimer = document.getElementById("voiceTimer");
+  const voiceWave = document.getElementById("voiceWave");
+  const voiceRecord = document.getElementById("voiceRecord");
+  const voiceStop = document.getElementById("voiceStop");
+  const voiceCancel = document.getElementById("voiceCancel");
+
+  const mediaForm = document.getElementById("chatMediaForm");
+  const mediaFile = document.getElementById("mediaFile");
+  const mediaCaption = document.getElementById("mediaCaption");
+
+  async function uploadMedia(file) {
+    if (!mediaForm) return;
+    const fd = new FormData();
+    const csrfInput = mediaForm.querySelector("input[name='csrfmiddlewaretoken']");
+    if (csrfInput) fd.append("csrfmiddlewaretoken", csrfInput.value);
+    if (mediaCaption && mediaCaption.value) fd.append("content", mediaCaption.value);
+    fd.append("media_file", file);
+
+    const res = await fetch(mediaForm.action, {
+      method: "POST",
+      headers: {
+        "X-Requested-With": "XMLHttpRequest",
+        "X-CSRFToken": getCookie("csrftoken"),
+      },
+      body: fd,
+    });
+    if (!res.ok) throw new Error("upload failed");
+    // We rely on the websocket broadcast to display the message.
+    if (mediaCaption) mediaCaption.value = "";
+    if (mediaFile) mediaFile.value = "";
+  }
+
+  if (mediaForm) {
+    mediaForm.addEventListener("submit", async (e) => {
+      if (!socketOpen) return; // fallback to normal POST + redirect
+      const file = mediaFile && mediaFile.files && mediaFile.files[0];
+      if (!file) return;
+      e.preventDefault();
+      try {
+        showToast("Sending…", "info");
+        await uploadMedia(file);
+        showToast("Sent", "success");
+      } catch {
+        showToast("Upload failed", "error");
+      }
+    });
+  }
+
+  function openPanel(panel) {
+    [pollPanel, voicePanel].forEach((p) => p && p.classList.remove("open"));
+    if (panel) panel.classList.add("open");
+  }
+
+  if (pollToggle) pollToggle.addEventListener("click", () => openPanel(pollPanel));
+  if (voiceToggle) voiceToggle.addEventListener("click", () => openPanel(voicePanel));
+  if (pollCancel) pollCancel.addEventListener("click", () => openPanel(null));
+  if (voiceCancel)
+    voiceCancel.addEventListener("click", () => {
+      discardRecording = true;
+      stopRecording();
+      openPanel(null);
+    });
+
+  if (pollAddOption && pollOptionInputs) {
+    pollAddOption.addEventListener("click", () => {
+      const count = pollOptionInputs.querySelectorAll("input").length;
+      if (count >= 6) return;
+      const input = document.createElement("input");
+      input.type = "text";
+      input.name = `option_${count + 1}`;
+      input.placeholder = `Option ${count + 1}`;
+      pollOptionInputs.appendChild(input);
+    });
+  }
+
+  if (pollForm) {
+    pollForm.addEventListener("submit", (e) => {
+      if (!socketOpen) return; // fallback to normal POST
+      e.preventDefault();
+      const q = document.getElementById("pollQuestion").value.trim();
+      const opts = Array.from(pollOptionInputs.querySelectorAll("input"))
+        .map((i) => i.value.trim())
+        .filter(Boolean);
+      if (!q || opts.length < 2) {
+        showToast("Add a question + 2 options", "error");
+        return;
+      }
+      socket.send(JSON.stringify({ event: "poll_create", question: q, options: opts, sender: currentUser }));
+      pollForm.reset();
+      // keep first two option inputs
+      pollOptionInputs.innerHTML = '<input type="text" name="option_1" placeholder="Option 1" required /><input type="text" name="option_2" placeholder="Option 2" required />';
+      openPanel(null);
+      showToast("Poll sent", "success");
+    });
+  }
+
+  // Poll voting for server-rendered polls
+  document.querySelectorAll(".poll-card").forEach((card) => {
+    const pollId = card.dataset.pollId;
+    card.querySelectorAll(".poll-option").forEach((btn) => {
+      btn.addEventListener("click", () => voteOnPoll(pollId, btn.dataset.pollOptionId, card));
+    });
+  });
+
+  // Voice note (record -> submit as chat media)
+  let mediaRecorder = null;
+  let recordedChunks = [];
+  let recordStartAt = 0;
+  let recordTick = null;
+  let discardRecording = false;
+
+  function formatTime(ms) {
+    const s = Math.floor(ms / 1000);
+    const m = Math.floor(s / 60);
+    const r = s % 60;
+    return `${String(m).padStart(2, "0")}:${String(r).padStart(2, "0")}`;
+  }
+
+  function setVoiceUI(state) {
+    if (!voicePanel) return;
+    voicePanel.classList.toggle("is-recording", state === "recording");
+    voicePanel.classList.toggle("is-sending", state === "sending");
+  }
+
+  function stopTimer() {
+    if (recordTick) window.clearInterval(recordTick);
+    recordTick = null;
+  }
+
+  async function startRecording() {
+    discardRecording = false;
+    if (!navigator.mediaDevices || !window.MediaRecorder) {
+      showToast("Voice notes not supported", "error");
+      return;
+    }
+
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    recordedChunks = [];
+
+    const mimeTypes = ["audio/webm;codecs=opus", "audio/webm", "audio/ogg;codecs=opus"];
+    const mimeType = mimeTypes.find((t) => MediaRecorder.isTypeSupported(t));
+
+    mediaRecorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+    mediaRecorder.ondataavailable = (e) => {
+      if (e.data && e.data.size > 0) recordedChunks.push(e.data);
+    };
+
+    mediaRecorder.onstop = async () => {
+      stream.getTracks().forEach((t) => t.stop());
+      stopTimer();
+
+      if (discardRecording) {
+        setVoiceUI("idle");
+        if (voiceStatus) voiceStatus.textContent = "Canceled.";
+        if (voiceTimer) voiceTimer.textContent = "00:00";
+        return;
+      }
+
+      const blob = new Blob(recordedChunks, { type: mimeType || "audio/webm" });
+      const file = new File([blob], `voice-${Date.now()}.webm`, { type: blob.type });
+
+      setVoiceUI("sending");
+      if (voiceStatus) voiceStatus.textContent = "Sending voice note…";
+      if (voiceRecord) {
+        voiceRecord.classList.add("is-loading");
+        voiceRecord.disabled = true;
+      }
+      if (voiceStop) voiceStop.disabled = true;
+
+      try {
+        if (socketOpen) {
+          await uploadMedia(file);
+          showToast("Voice note sent", "success");
+        } else if (mediaFile && mediaForm) {
+          const dt = new DataTransfer();
+          dt.items.add(file);
+          mediaFile.files = dt.files;
+          mediaForm.submit();
+        }
+      } catch {
+        showToast("Upload failed", "error");
+      } finally {
+        setVoiceUI("idle");
+        if (voiceRecord) {
+          voiceRecord.classList.remove("is-loading");
+          voiceRecord.disabled = false;
+        }
+        if (voiceStatus) voiceStatus.textContent = "Tap record to send a voice note.";
+        if (voiceTimer) voiceTimer.textContent = "00:00";
+      }
+    };
+
+    mediaRecorder.start();
+    recordStartAt = Date.now();
+    if (voiceTimer) voiceTimer.textContent = "00:00";
+    stopTimer();
+    recordTick = window.setInterval(() => {
+      if (voiceTimer) voiceTimer.textContent = formatTime(Date.now() - recordStartAt);
+    }, 250);
+
+    setVoiceUI("recording");
+    if (voiceStatus) voiceStatus.textContent = "Recording…";
+    if (voiceRecord) voiceRecord.disabled = true;
+    if (voiceStop) voiceStop.disabled = false;
+  }
+
+  function stopRecording() {
+    if (mediaRecorder && mediaRecorder.state !== "inactive") {
+      mediaRecorder.stop();
+      if (voiceStop) voiceStop.disabled = true;
+      openPanel(null);
+    }
+  }
+
+  if (voiceRecord)
+    voiceRecord.addEventListener("click", () =>
+      startRecording().catch(() => showToast("Mic permission denied", "error")),
+    );
+  if (voiceStop) voiceStop.addEventListener("click", stopRecording);
+
+  input.addEventListener("input", () => {
+    if (socketOpen) {
+      socket.send(JSON.stringify({ event: "typing", sender: currentUser }));
+    }
+  });
+
+  emojiToggle.addEventListener("click", () => {
+    emojiPicker.classList.toggle("open");
+  });
+  emojiPicker.querySelectorAll("span").forEach((emoji) => {
+    emoji.addEventListener("click", () => {
+      input.value += emoji.textContent;
+      emojiPicker.classList.remove("open");
+    });
+  });
+
+  document.querySelectorAll(".reply-btn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      input.value = `@${btn.dataset.replyName} `;
+      replyToId.value = btn.dataset.replyId;
+      input.focus();
+    });
+  });
+
+</script>
+{% endblock %}
